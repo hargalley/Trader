@@ -1,4 +1,4 @@
-# main.py
+# main.py (edited for 3-min loop + activity monitor)
 import os
 import json
 import time
@@ -52,7 +52,6 @@ def get_usdtm_symbols():
     info = client.futures_exchange_info()
     syms = []
     for s in info.get("symbols", []):
-        # choose perpetual USDT-margined contracts
         if s.get("contractType") == "PERPETUAL" and s.get("symbol", "").endswith("USDT"):
             syms.append(s["symbol"])
     return syms
@@ -74,14 +73,37 @@ def fetch_last_3_klines(symbol):
             })
         return out
     except Exception as e:
-        # Could be symbol delisted or rate-limited
-        # print(f"klines_error {symbol}: {e}")
         return None
 
-def main():
-    print("Starting run. TESTNET =", TESTNET)
+def show_account_activity():
+    """Print balances and open orders"""
+    print("\n=== ACCOUNT BALANCES ===")
+    try:
+        account_info = client.get_account()
+        for balance in account_info['balances']:
+            free = float(balance['free'])
+            locked = float(balance['locked'])
+            if free > 0 or locked > 0:
+                print(f"{balance['asset']}: Free={free}, Locked={locked}")
+    except Exception as e:
+        print("Failed to fetch balances:", e)
+
+    print("\n=== OPEN ORDERS ===")
+    try:
+        open_orders = client.get_open_orders()
+        if open_orders:
+            for order in open_orders:
+                print(order)
+        else:
+            print("No open orders.")
+    except Exception as e:
+        print("Failed to fetch open orders:", e)
+
+def run_bot_iteration():
+    """Single bot run iteration (logic from your original main)"""
+    print("Starting bot iteration. TESTNET =", TESTNET)
     if not server_time_ok_for_run():
-        print("Not the candle boundary. Exiting.")
+        print("Not the candle boundary. Skipping this run.")
         return
 
     state = load_state()
@@ -94,7 +116,6 @@ def main():
 
     new_opened = []
     for sym in symbols:
-        # quick guard to reduce API pressure in initial tests:
         try:
             klines = fetch_last_3_klines(sym)
             if not klines:
@@ -103,12 +124,9 @@ def main():
             if not signal:
                 continue
 
-            # check slots remaining
             if len(open_trades) + len(new_opened) >= MAX_SLICES:
-                # no slots left
                 continue
 
-            # attempt to open (pass current open count so executor can size)
             result = execer.open_trade(symbol=sym,
                                        direction=signal["direction"],
                                        entry_price_est=signal["entry_price_est"],
@@ -134,7 +152,11 @@ def main():
         save_state(state)
         print(f"Saved {len(open_trades)} open trades.")
     else:
-        print("No new trades this run.")
+        print("No new trades this iteration.")
 
 if __name__ == "__main__":
-    main()
+    while True:
+        run_bot_iteration()
+        show_account_activity()
+        print("\n--- Waiting 3 minutes before next iteration ---\n")
+        time.sleep(180)  # 3 minutes
