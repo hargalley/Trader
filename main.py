@@ -1,4 +1,4 @@
-# main.py (edited for 3-min loop + activity monitor)
+# main.py (edited for 3-min loop + debug analysis)
 import os
 import json
 import time
@@ -12,7 +12,6 @@ API_KEY = os.getenv("BINANCE_API_KEY", "")
 API_SECRET = os.getenv("BINANCE_SECRET_KEY", "")
 TESTNET = os.getenv("BINANCE_TESTNET", "true").lower() in ("1", "true", "yes")
 MAX_SLICES = int(os.getenv("MAX_SLICES", "10"))
-VOLUME_MULTIPLIER = int(os.getenv("VOLUME_MULTIPLIER", "18"))
 TP_PCT = float(os.getenv("TP_PCT", "0.03"))
 STATE_FILE = "state.json"
 
@@ -73,6 +72,7 @@ def fetch_last_3_klines(symbol):
             })
         return out
     except Exception as e:
+        print(f"Failed to fetch klines for {symbol}:", e)
         return None
 
 def show_account_activity():
@@ -120,17 +120,26 @@ def run_bot_iteration():
             klines = fetch_last_3_klines(sym)
             if not klines:
                 continue
-            signal = evaluate_symbol_for_signal(klines, volume_multiplier=VOLUME_MULTIPLIER)
+
+            # --- DEBUG ANALYSIS: print candle properties ---
+            c1, c2, c3 = klines
+            print("\n------------------------------")
+            print(f"DEBUG {sym}")
+            print("------------------------------")
+            print(f"C1 -> time:{c1['open_time']} O:{c1['open']} H:{c1['high']} L:{c1['low']} C:{c1['close']} V:{c1['volume']}")
+            print(f"C2 -> time:{c2['open_time']} O:{c2['open']} H:{c2['high']} L:{c2['low']} C:{c2['close']} V:{c2['volume']}")
+            print(f"C3 -> time:{c3['open_time']} O:{c3['open']} (in-progress)")
+
+            # --- send to strategy (volume_multiplier x15 and price-change logic will be handled in strategy.py) ---
+            signal = evaluate_symbol_for_signal(klines, volume_multiplier=15)
             if not signal:
                 continue
 
-            if len(open_trades) + len(new_opened) >= MAX_SLICES:
-                continue
-
+            # all-in logic: no slices
             result = execer.open_trade(symbol=sym,
                                        direction=signal["direction"],
                                        entry_price_est=signal["entry_price_est"],
-                                       current_open_count=len(open_trades) + len(new_opened))
+                                       current_open_count=0)
             if result.get("ok"):
                 entry = {
                     "symbol": sym,
